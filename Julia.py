@@ -47,24 +47,24 @@ def main():
     output3 = JuliaSetMake((x_min, x_max),(y_min, y_max), size, max_iter, C3)
     # Visualise(output, (x_min, x_max), (y_min, y_max))
 
-    fig, ax = plt.subplots(2, 2,figsize=(10, 10))
+    fig, ax = plt.subplots(1, 3, figsize=(15, 7))
     
-    im1 = ax[0,0].imshow(output1, cmap='inferno', extent=[x_min, x_max, y_min, y_max], origin='lower', norm=mcolors.LogNorm())
-    plt.colorbar(im1, ax=ax[0,0], label='Number of iterations')
-    ax[0,0].set_xlabel('Real')
-    ax[0,0].set_ylabel('Imaginary')
+    im1 = ax[0].imshow(output1, cmap='inferno', extent=[x_min, x_max, y_min, y_max], origin='lower', norm=mcolors.LogNorm())
+    # plt.colorbar(im1, ax=ax[0], label='Number of iterations')
+    ax[0].set_xlabel('Real')
+    ax[0].set_ylabel('Imaginary')
 
-    im2 = ax[0,1].imshow(output2, cmap='inferno', extent=[x_min, x_max, y_min, y_max], origin='lower', norm=mcolors.LogNorm())
-    plt.colorbar(im2, ax=ax[0,1], label='Number of iterations')
-    ax[0,1].set_xlabel('Real')
-    ax[0,1].set_ylabel('Imaginary')
+    im2 = ax[1].imshow(output2, cmap='inferno', extent=[x_min, x_max, y_min, y_max], origin='lower', norm=mcolors.LogNorm())
+    # plt.colorbar(im2, ax=ax[1], label='Number of iterations')
+    ax[1].set_xlabel('Real')
+    ax[1].set_ylabel('Imaginary')
 
-    im3 = ax[1,0].imshow(output3, cmap='inferno', extent=[x_min, x_max, y_min, y_max], origin='lower', norm=mcolors.LogNorm())
-    plt.colorbar(im3, ax=ax[1,0], label='Number of iterations')
-    ax[1,0].set_xlabel('Real')
-    ax[1,0].set_ylabel('Imaginary')
+    im3 = ax[2].imshow(output3, cmap='inferno', extent=[x_min, x_max, y_min, y_max], origin='lower', norm=mcolors.LogNorm())
+    # plt.colorbar(im3, ax=ax[2], label='Number of iterations')
+    ax[2].set_xlabel('Real')
+    ax[2].set_ylabel('Imaginary')
 
-    ax[1,1].axis("off")
+    fig.colorbar(im3, ax=ax.ravel().tolist(), label='Number of iterations',location='bottom', pad=0.1, shrink=0.7)
 
     plt.show()
 
