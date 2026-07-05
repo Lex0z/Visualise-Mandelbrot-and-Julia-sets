@@ -31,8 +31,8 @@ def Visualise(output, x_range, y_range):
     plt.show()
 
 def main():
-    size = 1000
-    max_iter = 300
+    size = 100
+    max_iter = 100
     x_min = -1.5
     x_max = 1.5
     y_min = -1.5
@@ -66,10 +66,8 @@ def main():
 
     fig.colorbar(im3, ax=ax.ravel().tolist(), label='Number of iterations',location='bottom', pad=0.1, shrink=0.7)
 
+    plt.subplots_adjust(bottom=0.37,left=0.05,right=0.95)
     plt.show()
-
-
-
 
 if __name__ == "__main__":
     main()
