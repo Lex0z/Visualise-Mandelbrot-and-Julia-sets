@@ -3,12 +3,14 @@ import matplotlib.colors as mcolors
 from matplotlib.widgets import RectangleSelector, Button
 import numpy as np
 
-MAX_ITER = 500
+MAX_ITER = 1000
+START_ITER = 200
+SIZE = 512
 
 class JuliaVisualization:
     """Класс для управления визуализацией множества Жюлиа"""
     
-    def __init__(self, c, x_range, y_range, size=300, max_iter=100):
+    def __init__(self, c, x_range, y_range, size=SIZE, max_iter=START_ITER):
         self.c = c
         self.size = size
         
@@ -124,26 +126,26 @@ def on_select_in_one_mode(eclick, erelease, fig, ax):
     
     current_viz = fig.state['current_viz']
     
-    # 🔑 Вычисляем текущий zoom_level
+    # Вычисляем текущий zoom_level
     original_width = current_viz.original_x_range[1] - current_viz.original_x_range[0]
     current_width = current_viz.current_x_range[1] - current_viz.current_x_range[0]
     current_zoom_level = original_width / current_width
     
-    # 🔑 Вычисляем zoom_level выбранной области
+    # Вычисляем zoom_level выбранной области
     selected_width = abs(x2 - x1)
     new_zoom_level = original_width / selected_width
     
-    # 🔑 Проверяем, достигнут ли максимальный zoom
+    # Проверяем, достигнут ли максимальный zoom
     if current_viz.current_max_iter >= MAX_ITER:
         print(f"Maximum zoom reached (max_iter = {MAX_ITER}). Cannot zoom further.")
         return
     
-    # 🔑 Проверяем минимальный размер области
+    # Проверяем минимальный размер области
     if selected_width < 0.001 or abs(y2 - y1) < 0.001:
         print("Selected area is too small, ignoring")
         return
     
-    # 🔑 Проверяем, не превысит ли новый zoom максимальный
+    # Проверяем, не превысит ли новый zoom максимальный
     if new_zoom_level > current_zoom_level * 10:  # Ограничиваем разовый зум в 10 раз
         print(f"Zoom too aggressive. Please select a larger area.")
         return
@@ -201,7 +203,7 @@ def switch_to_one_mode(fig, ax_idx):
     # Показываем только выбранный axes
     current_ax.set_visible(True)
     
-    # 🔑 Изменяем позицию axes (оставляем место для colorbar справа)
+    # Изменяем позицию axes (оставляем место для colorbar справа)
     current_ax.set_position([0.1, 0.15, 0.75, 0.75])
     
     # Перерисовываем изображение
@@ -221,7 +223,7 @@ def switch_to_one_mode(fig, ax_idx):
     current_ax.julia_viz = current_viz
     current_ax.idx = ax_idx
     
-    # 🔑 Создаем новый colorbar справа
+    # Создаем новый colorbar справа
     create_colorbar_single_mode(fig, current_ax, current_viz)
     
     # Обновляем состояние
@@ -269,12 +271,16 @@ def create_colorbar_single_mode(fig, ax, viz):
     """Создание colorbar для режима одного изображения (справа)"""
     remove_colorbar(fig)
     
+    # Вычисляем реальное минимальное значение из данных
+    vmin = max(1, int(np.min(viz.output)))  # vmin должен быть >= 1 для LogNorm
+    vmax = viz.current_max_iter
+    
     # Создаем новый axes для colorbar справа
     cax = fig.add_axes([0.92, 0.25, 0.02, 0.65])
     
-    # Создаем mappable для colorbar
+    # Создаем mappable для colorbar с реальными vmin/vmax
     mappable = plt.cm.ScalarMappable(
-        norm=mcolors.LogNorm(vmin=1, vmax=viz.current_max_iter),
+        norm=mcolors.LogNorm(vmin=vmin, vmax=vmax),
         cmap='inferno'
     )
     
@@ -293,12 +299,17 @@ def create_colorbar_three_mode(fig, axes):
     """Создание colorbar для режима трех изображений (снизу)"""
     remove_colorbar(fig)
     
-    # 🔑 Создаем axes для colorbar явно
+    # Вычисляем реальные min/max из первого изображения
+    first_viz = axes[0].julia_viz
+    vmin = max(1, int(np.min(first_viz.output)))
+    vmax = first_viz.current_max_iter
+    
+    # Создаем axes для colorbar явно
     cax = fig.add_axes([0.15, 0.08, 0.7, 0.03])
     
-    # Создаем mappable для colorbar
+    # Создаем mappable для colorbar с реальными vmin/vmax
     mappable = plt.cm.ScalarMappable(
-        norm=mcolors.LogNorm(vmin=1, vmax=axes[0].julia_viz.current_max_iter),
+        norm=mcolors.LogNorm(vmin=vmin, vmax=vmax),
         cmap='inferno'
     )
     
@@ -311,6 +322,7 @@ def create_colorbar_three_mode(fig, axes):
     fig._colorbar_ax = cax
     
     return cbar
+
 
 def reset_zoom(event, fig):
     """Обработчик кнопки сброса зума"""
@@ -364,11 +376,11 @@ def back_to_three(event, fig):
         ax.julia_viz = viz
         ax.idx = idx
     
-    # 🔑 Восстанавливаем отступы
+    # Восстанавливаем отступы
     adj = fig.state['original_subplots_adjust']
     fig.subplots_adjust(bottom=adj['bottom'], left=adj['left'], right=adj['right'])
     
-    # 🔑 Создаем новый colorbar снизу
+    # Создаем новый colorbar снизу
     create_colorbar_three_mode(fig, fig.state['all_axes'])
     
     # Пересоздаем RectangleSelector'ы
@@ -414,7 +426,7 @@ def update_single_visualization(fig, ax):
     ax.set_ylabel('Imaginary')
     ax.set_title(f'c = {viz.c}')
     
-    # 🔑 Обновляем colorbar с новыми параметрами
+    # Обновляем colorbar с новыми параметрами
     create_colorbar_single_mode(fig, ax, viz)
     
     fig.canvas.draw()
@@ -467,17 +479,11 @@ def Visualise(julia_vizs, shape=None):
         )
         fig.state['selectors'].append(selector)
     
-    fig.colorbar(
-        images[0],
-        ax=axes.ravel().tolist(),
-        label='Number of iterations',
-        location='bottom',
-        pad=0.1,
-        shrink=0.7
-    )
+    create_colorbar_three_mode(fig, fig.state['all_axes'])
+
     plt.subplots_adjust(bottom=0.37, left=0.05, right=0.95)
     
-    # 🔑 СОХРАНЯЕМ ИСХОДНЫЕ ПОЗИЦИИ И ПАРАМЕТРЫ LAYOUT
+    # сохраняем исходные позиции и параметры
     fig.state['original_positions'] = [ax.get_position() for ax in axes]
     fig.state['original_subplots_adjust'] = {
         'bottom': 0.37, 'left': 0.05, 'right': 0.95
@@ -512,7 +518,7 @@ def main():
     y_range = (-1.5, 1.5)
     Cs = [-0.8 + 0.156j, -0.4 + 0.6j, 0.285 + 0.01j]
     
-    julia_vizs = [JuliaVisualization(c, x_range, y_range, size=100, max_iter=100) 
+    julia_vizs = [JuliaVisualization(c, x_range, y_range, size=SIZE, max_iter=START_ITER) 
                   for c in Cs]
     
     fig, axes = Visualise(julia_vizs, (1, 3))
