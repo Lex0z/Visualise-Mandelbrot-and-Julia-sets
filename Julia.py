@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.widgets import RectangleSelector
 import numpy as np
 
 class JuliaVisualization:
@@ -32,6 +33,33 @@ class JuliaVisualization:
         # Вычисляем множество
         self.output = self._calculate()
     
+    def _normalize_to_square(self, x_range, y_range):
+        """
+        Приведение выбранной области к квадратному виду
+        
+        Args:
+            x_range: кортеж (x_min, x_max)
+            y_range: кортеж (y_min, y_max)
+        
+        Returns:
+            tuple: (new_x_range, new_y_range) - квадратная область
+        """
+        width = x_range[1] - x_range[0]
+        height = y_range[1] - y_range[0]
+        
+        # Центры областей
+        x_center = (x_range[0] + x_range[1]) / 2
+        y_center = (y_range[0] + y_range[1]) / 2
+        
+        # Берем наибольшую сторону
+        max_side = max(width, height)
+        
+        # Создаем квадратную область с тем же центром
+        new_x_range = (x_center - max_side / 2, x_center + max_side / 2)
+        new_y_range = (y_center - max_side / 2, y_center + max_side / 2)
+        
+        return new_x_range, new_y_range
+
     def _calculate(self):
         """Внутренний метод вычисления множества Жюлиа"""
         x_min, x_max = self.current_x_range
@@ -54,21 +82,19 @@ class JuliaVisualization:
     def zoom(self, new_x_range, new_y_range):
         """
         Зум в указанную область
-        
-        Args:
-            new_x_range: новый диапазон по X
-            new_y_range: новый диапазон по Y
         """
+        # Приводим к квадратному виду
+        new_x_range, new_y_range = self._normalize_to_square(new_x_range, new_y_range)
+        
         # Вычисляем уровень зума
         original_width = self.original_x_range[1] - self.original_x_range[0]
         new_width = new_x_range[1] - new_x_range[0]
         zoom_level = original_width / new_width
         
-        # Увеличиваем количество итераций для детализации фрактала
-        # Размер сетки остается неизменным!
+        # Увеличиваем количество итераций
         self.current_max_iter = min(int(self.original_max_iter * np.log2(zoom_level + 1)), 500)
         
-        # Обновляем только диапазоны
+        # Обновляем диапазоны
         self.current_x_range = new_x_range
         self.current_y_range = new_y_range
         
@@ -76,7 +102,8 @@ class JuliaVisualization:
         self.output = self._calculate()
         
         print(f"Zoom level: {zoom_level:.2f}x, size: {self.size} (fixed), max_iter: {self.current_max_iter}")
-    
+        print(f"Normalized to square: X={new_x_range}, Y={new_y_range}")
+        
     def reset(self):
         """Сброс к исходным параметрам"""
         self.current_x_range = self.original_x_range
@@ -96,6 +123,48 @@ class JuliaVisualization:
             'zoom_level': (self.original_x_range[1] - self.original_x_range[0]) / 
                          (self.current_x_range[1] - self.current_x_range[0])
         }
+
+
+def on_select(eclick, erelease, fig, ax):
+    """
+    Callback-функция для обработки выбора области
+    
+    Args:
+        eclick: событие начала выбора
+        erelease: событие завершения выбора
+        fig: figure объект
+        ax: axes, на котором сделан выбор
+    """
+    # Получаем координаты в данных
+    x1, y1 = eclick.xdata, eclick.ydata
+    x2, y2 = erelease.xdata, erelease.ydata
+    
+    # Проверяем минимальный размер области
+    if abs(x2 - x1) < 0.01 or abs(y2 - y1) < 0.01:
+        print("Selected area is too small, ignoring")
+        return
+    
+    # Нормализуем координаты (x1 < x2, y1 < y2)
+    x_min, x_max = min(x1, x2), max(x1, x2)
+    y_min, y_max = min(y1, y2), max(y1, y2)
+    
+    # Сохраняем выбранные координаты в состоянии
+    fig.state['selected_area'] = {
+        'x_range': (x_min, x_max),
+        'y_range': (y_min, y_max),
+        'ax_idx': ax.idx
+    }
+    
+    print(f"\nSelected area on axes {ax.idx}:")
+    print(f"  X: [{x_min:.4f}, {x_max:.4f}]")
+    print(f"  Y: [{y_min:.4f}, {y_max:.4f}]")
+    print(f"  Width: {x_max - x_min:.4f}, Height: {y_max - y_min:.4f}")
+    
+    # Отключаем RectangleSelector после выбора
+    for selector in fig.state['selectors']:
+        selector.set_active(False)
+    
+    print("\nSelection complete. Press Enter to continue...")
 
 
 def Visualise(julia_vizs, shape=None):
@@ -118,7 +187,8 @@ def Visualise(julia_vizs, shape=None):
         'current_viz': None,
         'current_ax': None,
         'selectors': [],
-        'buttons': {}
+        'buttons': {},
+        'selected_area': None
     }
     
     for idx, (ax, julia_viz) in enumerate(zip(axes, julia_vizs)):
@@ -137,6 +207,17 @@ def Visualise(julia_vizs, shape=None):
         # Сохраняем ссылку на объект визуализации в axes
         ax.julia_viz = julia_viz
         ax.idx = idx
+        
+        # Создаем RectangleSelector для каждого axes
+        selector = RectangleSelector(
+            ax,
+            lambda eclick, erelease, ax=ax: on_select(eclick, erelease, fig, ax),
+            button=[1],  # только левая кнопка мыши
+            interactive=False,  # нельзя перемещать/изменять после создания
+            useblit=True,  # для производительности
+            props=dict(facecolor='red', edgecolor='red', alpha=0.3, fill=True)
+        )
+        fig.state['selectors'].append(selector)
     
     fig.colorbar(
         images[0], 
@@ -197,43 +278,43 @@ def main():
     julia_vizs = [JuliaVisualization(c, x_range, y_range, size=100, max_iter=100) 
                   for c in Cs]
     
-    # Вывод информации о каждом объекте
-    print("Initial state:")
-    for idx, viz in enumerate(julia_vizs):
-        print(f"\nVisualization {idx}:")
-        info = viz.get_info()
-        for key, value in info.items():
-            print(f"  {key}: {value}")
-    
     # Начальная визуализация
     fig, axes = Visualise(julia_vizs, (1, 3))
     
-    # Пауза для просмотра начального состояния
-    input("\nPress Enter to test zoom...")
+    print("\n" + "="*60)
+    print("INSTRUCTIONS:")
+    print("="*60)
+    print("1. Draw a rectangle on any of the three images")
+    print("2. Use left mouse button to select area")
+    print("3. After selection, press Enter to continue")
+    print("="*60 + "\n")
     
-    # Тестирование зума
-    print("\n\nTesting zoom on first visualization:")
-    julia_vizs[0].zoom((-0.5, 0.5), (-0.5, 0.5))
-    info = julia_vizs[0].get_info()
-    print(f"New zoom level: {info['zoom_level']:.2f}x")
+    # Ждем выбора области
+    input()
     
-    # Обновление визуализации
-    update_visualization(fig, axes, julia_vizs)
+    # Проверяем, была ли выбрана область
+    if fig.state['selected_area'] is None:
+        print("No area was selected!")
+        plt.close(fig)
+        return
     
-    # Пауза для просмотра зума
-    input("\nPress Enter to test reset...")
+    # Получаем информацию о выбранной области
+    selected = fig.state['selected_area']
+    ax_idx = selected['ax_idx']
+    x_range_new = selected['x_range']
+    y_range_new = selected['y_range']
     
-    # Тестирование сброса
-    print("\nTesting reset:")
-    julia_vizs[0].reset()
-    info = julia_vizs[0].get_info()
-    print(f"Zoom level after reset: {info['zoom_level']:.2f}x")
+    print(f"\nApplying zoom to axes {ax_idx}...")
     
-    # Обновление визуализации
+    # Применяем зум к выбранному объекту
+    julia_vizs[ax_idx].zoom(x_range_new, y_range_new)
+    
+    # Обновляем визуализацию
     update_visualization(fig, axes, julia_vizs)
     
     # Финальная пауза
-    input("\nPress Enter to exit...")
+    print("\nZoom applied. Press Enter to exit...")
+    input()
     plt.close(fig)
 
 
