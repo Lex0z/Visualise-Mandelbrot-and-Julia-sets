@@ -3,9 +3,9 @@ import matplotlib.colors as mcolors
 from matplotlib.widgets import RectangleSelector, Button
 import numpy as np
 
-MAX_ITER = 1000
+MAX_ITER = 700
 START_ITER = 200
-SIZE = 512
+SIZE = 400
 
 class JuliaVisualization:
     """Класс для управления визуализацией множества Жюлиа"""
@@ -26,22 +26,37 @@ class JuliaVisualization:
     
     def _calculate(self):
         """Внутренний метод вычисления множества Жюлиа"""
-        x_min, x_max = self.current_x_range
-        y_min, y_max = self.current_y_range
-        
-        ReZ, ImZ = np.meshgrid(
-            np.linspace(x_min, x_max, self.size),
-            np.linspace(y_min, y_max, self.size)
-        )
-        Z = ReZ + 1j * ImZ
-        output = np.ones((self.size, self.size))
-        
-        for i in range(1, self.current_max_iter):
-            mask = abs(Z) < 2
-            Z = np.where(mask, Z*Z + self.c, Z)
-            output = np.where(mask, i, output)
-        
-        return output
+        try:
+            x_min, x_max = self.current_x_range
+            y_min, y_max = self.current_y_range
+            
+            if x_min >= x_max or y_min >= y_max:
+                raise ValueError(f"Invalid ranges: x={self.current_x_range}, y={self.current_y_range}")
+
+            ReZ, ImZ = np.meshgrid(
+                np.linspace(x_min, x_max, self.size),
+                np.linspace(y_min, y_max, self.size)
+            )
+            Z = ReZ + 1j * ImZ
+            output = np.ones((self.size, self.size))
+            
+            for i in range(1, self.current_max_iter):
+                mask = abs(Z) < 2
+                Z = np.where(mask, Z*Z + self.c, Z)
+                output = np.where(mask, i, output)
+
+                if not np.all(np.isfinite(Z)):
+                    print(f"Warning: Numerical overflow detected at iteration {i}")
+                    break
+            
+            return output
+            
+        except MemoryError as e:
+            print(f"ERROR: Out of memory during calculation: {e}")
+            return np.ones((self.size, self.size))
+        except Exception as e:
+            print(f"ERROR: Calculation failed: {e}")
+            return np.ones((self.size, self.size))
     
     def _normalize_to_square(self, x_range, y_range):
         """Приведение выбранной области к квадратному виду"""
@@ -60,21 +75,35 @@ class JuliaVisualization:
     
     def zoom(self, new_x_range, new_y_range):
         """Зум в указанную область"""
-        # Приводим к квадратному виду
-        new_x_range, new_y_range = self._normalize_to_square(new_x_range, new_y_range)
-        
-        original_width = self.original_x_range[1] - self.original_x_range[0]
-        new_width = new_x_range[1] - new_x_range[0]
-        zoom_level = original_width / new_width
-        
-        self.current_max_iter = min(int(self.original_max_iter * np.log2(zoom_level + 1)), MAX_ITER)
-        
-        self.current_x_range = new_x_range
-        self.current_y_range = new_y_range
-        
-        self.output = self._calculate()
-        
-        print(f"Zoom level: {zoom_level:.2f}x, size: {self.size} (fixed), max_iter: {self.current_max_iter}")
+        try:
+            # Приводим к квадратному виду
+            new_x_range, new_y_range = self._normalize_to_square(new_x_range, new_y_range)
+            
+            # Проверка корректности диапазонов
+            if new_x_range[0] >= new_x_range[1] or new_y_range[0] >= new_y_range[1]:
+                raise ValueError(f"Invalid zoom ranges: x={new_x_range}, y={new_y_range}")
+            
+            original_width = self.original_x_range[1] - self.original_x_range[0]
+            new_width = new_x_range[1] - new_x_range[0]
+            
+            if new_width <= 0:
+                raise ValueError("Zoom width must be positive")
+            
+            zoom_level = original_width / new_width
+            
+            self.current_max_iter = min(int(self.original_max_iter * np.log2(zoom_level + 1)), MAX_ITER)
+            
+            self.current_x_range = new_x_range
+            self.current_y_range = new_y_range
+            
+            self.output = self._calculate()
+            
+            print(f"Zoom level: {zoom_level:.2f}x, size: {self.size} (fixed), max_iter: {self.current_max_iter}")
+            
+        except ValueError as e:
+            print(f"ERROR: Invalid zoom parameters: {e}")
+        except Exception as e:
+            print(f"ERROR: Zoom failed: {e}")
     
     def reset(self):
         """Сброс к исходным параметрам"""
@@ -83,7 +112,6 @@ class JuliaVisualization:
         self.current_max_iter = self.original_max_iter
         self.output = self._calculate()
         print("Reset to original view")
-
 
 def on_select(eclick, erelease, fig, ax):
     """Callback-функция для обработки выбора области"""
@@ -123,7 +151,6 @@ def on_select_in_one_mode(eclick, erelease, fig, ax):
     """Обработка выбора в режиме одного изображения"""
     x1, y1 = eclick.xdata, eclick.ydata
     x2, y2 = erelease.xdata, erelease.ydata
-    
     current_viz = fig.state['current_viz']
     
     # Вычисляем текущий zoom_level
@@ -146,7 +173,7 @@ def on_select_in_one_mode(eclick, erelease, fig, ax):
         return
     
     # Проверяем, не превысит ли новый zoom максимальный
-    if new_zoom_level > current_zoom_level * 10:  # Ограничиваем разовый зум в 10 раз
+    if new_zoom_level > current_zoom_level * 10:
         print(f"Zoom too aggressive. Please select a larger area.")
         return
     
@@ -160,169 +187,191 @@ def on_select_in_one_mode(eclick, erelease, fig, ax):
     update_single_visualization(fig, ax)
     
     print(f"Zoom applied in single mode")
-    """Обработка выбора в режиме одного изображения"""
-    x1, y1 = eclick.xdata, eclick.ydata
-    x2, y2 = erelease.xdata, erelease.ydata
-    
-    if abs(x2 - x1) < 0.01 or abs(y2 - y1) < 0.01:
-        print("Selected area is too small, ignoring")
-        return
-    
-    x_min, x_max = min(x1, x2), max(x1, x2)
-    y_min, y_max = min(y1, y2), max(y1, y2)
-    
-    # Применяем зум к текущему объекту
-    current_viz = fig.state['current_viz']
-    current_viz.zoom((x_min, x_max), (y_min, y_max))
-    
-    # Обновляем визуализацию
-    update_single_visualization(fig, ax)
-    
-    print(f"Zoom applied in single mode")
 
 def switch_to_one_mode(fig, ax_idx):
     """Переход в режим одного изображения"""
-    print(f"\nSwitching to single image mode (axes {ax_idx})...")
-    
-    # Получаем выбранные координаты
-    selected = fig.state['selected_area']
-    x_range_new = selected['x_range']
-    y_range_new = selected['y_range']
-    
-    # Получаем текущий axes и его визуализацию
-    current_ax = fig.state['all_axes'][ax_idx]
-    current_viz = fig.state['all_julia_vizs'][ax_idx]
-    
-    # Применяем зум
-    current_viz.zoom(x_range_new, y_range_new)
-    
-    # Скрываем все axes
-    for ax in fig.state['all_axes']:
-        ax.set_visible(False)
-    
-    # Показываем только выбранный axes
-    current_ax.set_visible(True)
-    
-    # Изменяем позицию axes (оставляем место для colorbar справа)
-    current_ax.set_position([0.1, 0.15, 0.75, 0.75])
-    
-    # Перерисовываем изображение
-    current_ax.clear()
-    im = current_ax.imshow(
-        current_viz.output,
-        cmap='inferno',
-        extent=[*current_viz.current_x_range, *current_viz.current_y_range],
-        origin='lower',
-        norm=mcolors.LogNorm()
-    )
-    current_ax.set_xlabel('Real')
-    current_ax.set_ylabel('Imaginary')
-    current_ax.set_title(f'c = {current_viz.c}')
-    
-    # Сохраняем ссылки
-    current_ax.julia_viz = current_viz
-    current_ax.idx = ax_idx
-    
-    # Создаем новый colorbar справа
-    create_colorbar_single_mode(fig, current_ax, current_viz)
-    
-    # Обновляем состояние
-    fig.state['mode'] = 'one'
-    fig.state['current_viz'] = current_viz
-    fig.state['current_ax'] = current_ax
-    
-    # Удаляем старые selectors
-    for selector in fig.state['selectors']:
-        selector.set_active(False)
-    fig.state['selectors'] = []
-    
-    # Создаем новый RectangleSelector
-    selector = RectangleSelector(
-        current_ax,
-        lambda eclick, erelease: on_select(eclick, erelease, fig, current_ax),
-        button=[1],
-        interactive=False,
-        useblit=True,
-        props=dict(facecolor='red', edgecolor='red', alpha=0.3, fill=True)
-    )
-    fig.state['selectors'].append(selector)
-    
-    # Показываем кнопки
-    for btn in fig.state['buttons'].values():
-        btn.ax.set_visible(True)
-    
-    # Обновляем canvas
-    fig.canvas.draw()
-    fig.canvas.flush_events()
-    
-    print("Switched to single image mode")
+    try:
+        print(f"\nSwitching to single image mode (axes {ax_idx})...")
+        
+        # Получаем выбранные координаты
+        selected = fig.state['selected_area']
+        if selected is None:
+            print("ERROR: No area selected")
+            return
+        
+        x_range_new = selected['x_range']
+        y_range_new = selected['y_range']
+        
+        # Получаем текущий axes и его визуализацию
+        current_ax = fig.state['all_axes'][ax_idx]
+        current_viz = fig.state['all_julia_vizs'][ax_idx]
+        
+        # Применяем зум
+        current_viz.zoom(x_range_new, y_range_new)
+        
+        # Скрываем все axes
+        for ax in fig.state['all_axes']:
+            ax.set_visible(False)
+        
+        # Показываем только выбранный axes
+        current_ax.set_visible(True)
+        
+        # Изменяем позицию axes (оставляем место для colorbar справа)
+        current_ax.set_position([0.1, 0.15, 0.75, 0.75])
+        
+        # Перерисовываем изображение
+        current_ax.clear()
+        im = current_ax.imshow(
+            current_viz.output,
+            cmap='inferno',
+            extent=[*current_viz.current_x_range, *current_viz.current_y_range],
+            origin='lower',
+            norm=mcolors.LogNorm()
+        )
+        current_ax.set_xlabel('Real')
+        current_ax.set_ylabel('Imaginary')
+        current_ax.set_title(f'c = {current_viz.c}')
+        
+        # Сохраняем ссылки
+        current_ax.julia_viz = current_viz
+        current_ax.idx = ax_idx
+        
+        # Создаем новый colorbar справа
+        create_colorbar_single_mode(fig, current_ax, current_viz)
+        
+        # Обновляем состояние
+        fig.state['mode'] = 'one'
+        fig.state['current_viz'] = current_viz
+        fig.state['current_ax'] = current_ax
+        
+        # Удаляем старые selectors
+        for selector in fig.state['selectors']:
+            try:
+                selector.set_active(False)
+            except Exception as e:
+                print(f"Warning: Could not deactivate selector: {e}")
+        fig.state['selectors'] = []
+        
+        # Создаем новый RectangleSelector
+        selector = RectangleSelector(
+            current_ax,
+            lambda eclick, erelease: on_select(eclick, erelease, fig, current_ax),
+            button=[1],
+            interactive=False,
+            useblit=True,
+            props=dict(facecolor='red', edgecolor='red', alpha=0.3, fill=True)
+        )
+        fig.state['selectors'].append(selector)
+        
+        # Показываем кнопки
+        for btn in fig.state['buttons'].values():
+            btn.ax.set_visible(True)
+        
+        # Обновляем canvas
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+        
+        print("Switched to single image mode")
+        
+    except Exception as e:
+        print(f"ERROR: Failed to switch to single mode: {e}")
+        # Восстанавливаем состояние при ошибке
+        fig.state['mode'] = 'three'
 
 def remove_colorbar(fig):
     """Удаление colorbar из figure"""
-    if hasattr(fig, '_colorbar') and fig._colorbar is not None:
-        fig._colorbar.remove()
-        fig._colorbar = None
-    # Также удаляем все colorbar axes
-    for ax in fig.axes[:]:
-        if hasattr(ax, '_colorbar_info'):
-            ax.remove()
+    try:
+        if hasattr(fig, '_colorbar') and fig._colorbar is not None:
+            try:
+                fig._colorbar.remove()
+            except Exception as e:
+                print(f"Warning: Could not remove colorbar: {e}")
+            fig._colorbar = None
+        
+        # Удаляем все colorbar axes
+        for ax in fig.axes[:]:
+            if hasattr(ax, '_colorbar_info'):
+                try:
+                    ax.remove()
+                except Exception as e:
+                    print(f"Warning: Could not remove colorbar axes: {e}")
+    except Exception as e:
+        print(f"ERROR: Failed to remove colorbar: {e}")
 
 def create_colorbar_single_mode(fig, ax, viz):
     """Создание colorbar для режима одного изображения (справа)"""
-    remove_colorbar(fig)
-    
-    # Вычисляем реальное минимальное значение из данных
-    vmin = max(1, int(np.min(viz.output)))  # vmin должен быть >= 1 для LogNorm
-    vmax = viz.current_max_iter
-    
-    # Создаем новый axes для colorbar справа
-    cax = fig.add_axes([0.92, 0.25, 0.02, 0.65])
-    
-    # Создаем mappable для colorbar с реальными vmin/vmax
-    mappable = plt.cm.ScalarMappable(
-        norm=mcolors.LogNorm(vmin=vmin, vmax=vmax),
-        cmap='inferno'
-    )
-    
-    # Создаем colorbar
-    cbar = fig.colorbar(mappable, cax=cax, orientation='vertical')
-    cbar.set_label('Number of iterations')
-    
-    # Сохраняем ссылку
-    fig._colorbar = cbar
-    fig._colorbar_ax = cax
-    
-    return cbar
-
+    try:
+        remove_colorbar(fig)
+        
+        # Вычисляем реальное минимальное значение из данных
+        vmin = max(1, int(np.min(viz.output)))
+        vmax = viz.current_max_iter
+        
+        # Проверка корректности vmin/vmax
+        if vmin >= vmax:
+            print(f"Warning: Invalid colorbar range [{vmin}, {vmax}], adjusting")
+            vmax = vmin + 1
+        
+        # Создаем новый axes для colorbar справа
+        cax = fig.add_axes([0.92, 0.25, 0.02, 0.65])
+        
+        # Создаем mappable для colorbar с реальными vmin/vmax
+        mappable = plt.cm.ScalarMappable(
+            norm=mcolors.LogNorm(vmin=vmin, vmax=vmax),
+            cmap='inferno'
+        )
+        
+        # Создаем colorbar
+        cbar = fig.colorbar(mappable, cax=cax, orientation='vertical')
+        cbar.set_label('Number of iterations')
+        
+        # Сохраняем ссылку
+        fig._colorbar = cbar
+        fig._colorbar_ax = cax
+        
+        return cbar
+        
+    except Exception as e:
+        print(f"ERROR: Failed to create single mode colorbar: {e}")
+        return None
 
 def create_colorbar_three_mode(fig, axes):
     """Создание colorbar для режима трех изображений (снизу)"""
-    remove_colorbar(fig)
-    
-    # Вычисляем реальные min/max из первого изображения
-    first_viz = axes[0].julia_viz
-    vmin = max(1, int(np.min(first_viz.output)))
-    vmax = first_viz.current_max_iter
-    
-    # Создаем axes для colorbar явно
-    cax = fig.add_axes([0.15, 0.08, 0.7, 0.03])
-    
-    # Создаем mappable для colorbar с реальными vmin/vmax
-    mappable = plt.cm.ScalarMappable(
-        norm=mcolors.LogNorm(vmin=vmin, vmax=vmax),
-        cmap='inferno'
-    )
-    
-    # Создаем colorbar с явным указанием cax
-    cbar = fig.colorbar(mappable, cax=cax, orientation='horizontal')
-    cbar.set_label('Number of iterations')
-    
-    # Сохраняем ссылку
-    fig._colorbar = cbar
-    fig._colorbar_ax = cax
-    
-    return cbar
-
+    try:
+        remove_colorbar(fig)
+        
+        # Вычисляем реальные min/max из первого изображения
+        first_viz = axes[0].julia_viz
+        vmin = max(1, int(np.min(first_viz.output)))
+        vmax = first_viz.current_max_iter
+        
+        # Проверка корректности vmin/vmax
+        if vmin >= vmax:
+            print(f"Warning: Invalid colorbar range [{vmin}, {vmax}], adjusting")
+            vmax = vmin + 1
+        
+        # Создаем axes для colorbar явно
+        cax = fig.add_axes([0.15, 0.08, 0.7, 0.03])
+        
+        # Создаем mappable для colorbar с реальными vmin/vmax
+        mappable = plt.cm.ScalarMappable(
+            norm=mcolors.LogNorm(vmin=vmin, vmax=vmax),
+            cmap='inferno'
+        )
+        
+        # Создаем colorbar с явным указанием cax
+        cbar = fig.colorbar(mappable, cax=cax, orientation='horizontal')
+        cbar.set_label('Number of iterations')
+        
+        # Сохраняем ссылку
+        fig._colorbar = cbar
+        fig._colorbar_ax = cax
+        
+        return cbar
+        
+    except Exception as e:
+        print(f"ERROR: Failed to create three mode colorbar: {e}")
+        return None
 
 def reset_zoom(event, fig):
     """Обработчик кнопки сброса зума"""
@@ -412,25 +461,29 @@ def back_to_three(event, fig):
 
 def update_single_visualization(fig, ax):
     """Обновление визуализации в режиме одного изображения"""
-    viz = ax.julia_viz
-    
-    ax.clear()
-    im = ax.imshow(
-        viz.output,
-        cmap='inferno',
-        extent=[*viz.current_x_range, *viz.current_y_range],
-        origin='lower',
-        norm=mcolors.LogNorm()
-    )
-    ax.set_xlabel('Real')
-    ax.set_ylabel('Imaginary')
-    ax.set_title(f'c = {viz.c}')
-    
-    # Обновляем colorbar с новыми параметрами
-    create_colorbar_single_mode(fig, ax, viz)
-    
-    fig.canvas.draw()
-    fig.canvas.flush_events()
+    try:
+        viz = ax.julia_viz
+        
+        ax.clear()
+        im = ax.imshow(
+            viz.output,
+            cmap='inferno',
+            extent=[*viz.current_x_range, *viz.current_y_range],
+            origin='lower',
+            norm=mcolors.LogNorm()
+        )
+        ax.set_xlabel('Real')
+        ax.set_ylabel('Imaginary')
+        ax.set_title(f'c = {viz.c}')
+        
+        # Обновляем colorbar с новыми параметрами
+        create_colorbar_single_mode(fig, ax, viz)
+        
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+        
+    except Exception as e:
+        print(f"ERROR: Failed to update visualization: {e}")
 
 def Visualise(julia_vizs, shape=None):
     """Визуализация списка объектов JuliaVisualization"""
@@ -518,8 +571,7 @@ def main():
     y_range = (-1.5, 1.5)
     Cs = [-0.8 + 0.156j, -0.4 + 0.6j, 0.285 + 0.01j]
     
-    julia_vizs = [JuliaVisualization(c, x_range, y_range, size=SIZE, max_iter=START_ITER) 
-                  for c in Cs]
+    julia_vizs = [JuliaVisualization(c, x_range, y_range, size=SIZE, max_iter=START_ITER) for c in Cs]
     
     fig, axes = Visualise(julia_vizs, (1, 3))
     
